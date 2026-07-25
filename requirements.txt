@@ -18,6 +18,7 @@ filelock==3.29.0
 fonttools==4.63.0
 frozenlist==1.8.0
 fsspec==2026.4.0
+gensim==4.4.0
 idna==3.18
 ipykernel==7.3.0
 ipython==9.15.0
@@ -75,6 +76,7 @@ requests==2.34.2
 scikit-learn==1.9.0
 scipy==1.17.1
 six==1.17.0
+smart_open==8.0.1
 stack-data==0.6.3
 statsmodels==0.14.6
 sympy==1.14.0
@@ -90,5 +92,6 @@ typing_extensions==4.15.0
 urllib3==2.7.0
 wcwidth==0.8.2
 widgetsnbextension==4.0.15
+wrapt==2.2.2
 xxhash==3.8.1
 yarl==1.24.5
