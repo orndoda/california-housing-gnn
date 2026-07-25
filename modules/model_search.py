@@ -91,23 +91,8 @@ def halving_grid_search_models_with_test(
         )
 
         search.fit(X_train, y_train)
-        cv_results = search.cv_results_
 
-        mean_key = "mean_test_neg_mean_squared_error"
-        std_key = "std_test_neg_mean_squared_error"
-
-        if mean_key not in cv_results:
-            # no results for this model (rare) — skip
-            continue
-
-        best_idx = int(np.argmax(cv_results[mean_key]))
-        best_params = cv_results["params"][best_idx]
-        raw_mean = cv_results[mean_key][best_idx]
-        raw_std = cv_results.get(std_key, [0.0])[best_idx]
-
-        # Convert negative MSE to positive MSE for readability
-        cv_mean_mse = -float(raw_mean)
-        cv_std_mse = float(abs(raw_std))
+        best_params = search.best_params_
 
         # Refit best params on full training set and evaluate on test set
         best_pipeline = clone(pipeline)
@@ -123,8 +108,6 @@ def halving_grid_search_models_with_test(
             "model": model_name,
             "metric": "mean_squared_error",
             "best_params": best_params,
-            "cv_mean_mse": cv_mean_mse,
-            "cv_std_mse": cv_std_mse,
             "test_mse": test_mse,
             "test_mape": test_mape,
             "test_r2": test_r2,
