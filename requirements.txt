@@ -39,7 +39,8 @@ multidict==6.7.1
 narwhals==2.24.0
 nest-asyncio2==1.7.2
 networkx==3.6.1
-numpy==2.4.4
+node2vec==0.5.0
+numpy==1.26.4
 nvidia-cublas==13.4.0.1
 nvidia-cuda-cupti==13.2.75
 nvidia-cuda-nvrtc==13.2.78
