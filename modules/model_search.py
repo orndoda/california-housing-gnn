@@ -114,6 +114,6 @@ def halving_grid_search_models_with_test(
         })
 
     df = pd.DataFrame(rows)
-    cols = ["model", "metric", "cv_mean_mse", "cv_std_mse", "best_params", "test_mse", "test_mape", "test_r2"]
+    cols = ["model", "metric", "best_params", "test_mse", "test_mape", "test_r2"]
     df = df[cols].sort_values(["model"], ascending=[True]).reset_index(drop=True)
     return df
