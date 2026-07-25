@@ -5,11 +5,13 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import Pipeline
 from sklearn.neighbors import KNeighborsRegressor
 from sklearn.ensemble import RandomForestRegressor
-from sklearn.linear_model import LinearRegression
+from sklearn.linear_model import ElasticNet
 from sklearn.svm import SVR
 from sklearn.model_selection import GridSearchCV
 from sklearn.metrics import mean_squared_error, mean_absolute_percentage_error, r2_score, make_scorer
 from sklearn.base import clone
+import warnings
+warnings.filterwarnings('ignore')
 
 from typing import Optional, List, Tuple, Dict, Any
 from sklearn.preprocessing import StandardScaler
@@ -25,7 +27,7 @@ def _make_model_grids(random_state: Optional[int] = None
 
     knn_pipe = Pipeline([("scaler", StandardScaler()), ("model", KNeighborsRegressor())])
     rf_pipe  = Pipeline([("scaler", StandardScaler()), ("model", RandomForestRegressor(random_state=random_state))])
-    lr_pipe  = Pipeline([("scaler", StandardScaler()), ("model", LinearRegression())])
+    enet_pipe = Pipeline([("scaler", StandardScaler()), ("model", ElasticNet())])
     svr_pipe = Pipeline([("scaler", StandardScaler()), ("model", SVR())])
 
     # Much larger KNN grid
@@ -47,10 +49,17 @@ def _make_model_grids(random_state: Optional[int] = None
         "model__bootstrap": [True, False],
     }
 
-    # LinearRegression has few hyperparameters; expand with 'positive' and keep fit_intercept
-    lr_grid = {
+    # ElasticNet (wide range)
+    enet_grid = {
+        # alpha on a log scale from very small to large
+        "model__alpha": list(np.logspace(-6, 2, 20)),            # 1e-6 ... 1e2
+        # l1_ratio from pure ridge (0) to pure lasso (1)
+        "model__l1_ratio": list(np.linspace(0.0, 1.0, 21)),      # 0.0, 0.05, ..., 1.0
         "model__fit_intercept": [True, False],
-        "model__positive": [False, True],   # constrain coefficients to be positive (if supported by sklearn version)
+        "model__max_iter": [500, 1000, 5000, 10000],
+        "model__tol": [1e-8, 1e-6, 1e-5, 1e-4, 1e-3],
+        "model__positive": [False, True],                        # constrain coefficients to be non-negative
+        "model__warm_start": [False, True],
     }
 
     # Much larger SVR grid
@@ -66,7 +75,7 @@ def _make_model_grids(random_state: Optional[int] = None
     return [
         ("KNeighborsRegressor", knn_pipe, knn_grid),
         ("RandomForestRegressor", rf_pipe, rf_grid),
-        ("LinearRegression", lr_pipe, lr_grid),
+        ("ElasticNet", enet_pipe, enet_grid),
         ("SVR", svr_pipe, svr_grid),
     ]
 
