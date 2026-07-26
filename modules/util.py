@@ -1,10 +1,12 @@
 import random
 import numpy as np
 import pandas as pd
-from typing import List, Tuple, Optional, Sequence, Union, Dict, Any
+from typing import List, Tuple, Optional, Sequence, Union, Dict, Iterable, Any
 from tqdm.auto import tqdm
 import matplotlib.pyplot as plt
 import networkx as nx
+import torch
+from torch_geometric.data import Data
 
 def split_train_test_masks(indices: List[int],
                            train_pct: float,
@@ -441,3 +443,130 @@ def plot_graph_by_component(
     ax.grid(True, linestyle=":", linewidth=0.5, alpha=0.6)
     fig.tight_layout()
     return ax
+
+def build_pyg_data_from_networkx(
+    G: nx.Graph,
+    x: Optional[torch.Tensor] = None,
+    y: Optional[torch.Tensor] = None,
+    test_mask: Optional[Union[Iterable[bool], Iterable[int], Iterable[Any]]] = None,
+    edge_attr_name: str = "weight",
+    add_reverse_edges: bool = True,
+    node_mapping: Optional[Dict[Any, int]] = None,
+    device: str = "cpu"
+) -> Tuple[Data, Dict[Any, int]]:
+    """
+    Convert a NetworkX graph to a torch_geometric.data.Data object and return the node mapping.
+
+    - G: networkx Graph or DiGraph (nodes may be 0..N-1 or arbitrary labels).
+    - x: node feature tensor [N, F]. If None, a zero tensor [N, 1] is created.
+    - y: label tensor [N] aligned to nodes (if provided).
+    - test_mask: either
+        * boolean iterable length N aligned to node order (True for test nodes),
+        * or iterable of node labels/indices to mark as test nodes.
+    - edge_attr_name: edge attribute key to use as scalar edge weight (default "weight").
+    - add_reverse_edges: if True and G is undirected, add both directions for each edge.
+    - node_mapping: optional dict mapping original node labels -> contiguous indices 0..N-1.
+    - device: torch device string.
+    Returns (data, node_mapping).
+    """
+    # 1) Build or infer node mapping
+    nodes = list(G.nodes())
+    if node_mapping is None:
+        n = len(nodes)
+        if set(nodes) == set(range(n)):
+            node_mapping = {i: i for i in range(n)}
+        else:
+            node_mapping = {orig: i for i, orig in enumerate(nodes)}
+    else:
+        missing = set(G.nodes()) - set(node_mapping.keys())
+        if missing:
+            raise ValueError(f"node_mapping missing nodes: {missing}")
+
+    # 2) Relabel graph to contiguous indices
+    G_relabeled = nx.relabel_nodes(G, node_mapping, copy=True)
+
+    # 3) Build edge_index and edge_attr
+    edges = []
+    weights = []
+    for u, v, data in G_relabeled.edges(data=True):
+        w = data.get(edge_attr_name, 1.0)
+        edges.append((u, v))
+        weights.append(w)
+        if add_reverse_edges and not G_relabeled.is_directed():
+            edges.append((v, u))
+            weights.append(w)
+
+    if edges:
+        edge_index = torch.tensor(edges, dtype=torch.long, device=device).t().contiguous()
+        edge_attr = torch.tensor(weights, dtype=torch.float, device=device).view(-1, 1)
+    else:
+        edge_index = torch.empty((2, 0), dtype=torch.long, device=device)
+        edge_attr = torch.empty((0, 1), dtype=torch.float, device=device)
+
+    # 4) Node features x
+    num_nodes = G_relabeled.number_of_nodes()
+    if x is None:
+        x = torch.zeros((num_nodes, 1), dtype=torch.float, device=device)
+    else:
+        if not isinstance(x, torch.Tensor):
+            raise TypeError("x must be a torch.Tensor")
+        if x.shape[0] != num_nodes:
+            raise ValueError(f"x has {x.shape[0]} rows but graph has {num_nodes} nodes.")
+        x = x.to(device)
+
+    # 5) Labels y
+    if y is not None:
+        if not isinstance(y, torch.Tensor):
+            raise TypeError("y must be a torch.Tensor")
+        if y.shape[0] != num_nodes:
+            raise ValueError(f"y has {y.shape[0]} rows but graph has {num_nodes} nodes.")
+        y = y.to(device)
+
+    # 6) test_mask handling -> produce boolean tensor aligned to node indices
+    test_mask_tensor = torch.zeros(num_nodes, dtype=torch.bool, device=device)
+    if test_mask is not None:
+        tm_list = list(test_mask)
+        # If boolean list aligned to nodes
+        if len(tm_list) == num_nodes and all(isinstance(v, bool) for v in tm_list):
+            test_mask_tensor = torch.tensor([bool(v) for v in tm_list], dtype=torch.bool, device=device)
+        else:
+            # Interpret as iterable of node labels or indices
+            for item in tm_list:
+                if item in node_mapping:
+                    idx = node_mapping[item]
+                else:
+                    try:
+                        idx = int(item)
+                    except Exception:
+                        raise ValueError(f"test_mask item {item!r} is neither a node label nor an integer index.")
+                if idx < 0 or idx >= num_nodes:
+                    raise IndexError(f"test index {idx} out of range for {num_nodes} nodes.")
+                test_mask_tensor[idx] = True
+    else:
+        # If no test_mask provided, default to all False (no held-out test)
+        test_mask_tensor = torch.zeros(num_nodes, dtype=torch.bool, device=device)
+
+    # 7) train_mask is the complement of test_mask (True for training nodes)
+    train_mask_tensor = (~test_mask_tensor).to(torch.bool)
+
+    # 8) Build Data and attach fields
+    edge_index = edge_index.long()
+    edge_attr = edge_attr.float()
+    x = x.float()
+    if y is not None:
+        y = y.float()
+
+    test_mask_tensor = test_mask_tensor.bool()
+    train_mask_tensor = train_mask_tensor.bool()
+
+    data = Data(
+        x=x,
+        edge_index=edge_index,
+        edge_attr=edge_attr,
+        test_mask=test_mask_tensor,
+        train_mask=train_mask_tensor
+    )
+    if y is not None:
+        data.y = y
+
+    return data, node_mapping   
